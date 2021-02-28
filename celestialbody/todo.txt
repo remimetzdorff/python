@@ -1,0 +1,29 @@
+# MAJOR BUG FIXES
+	- asteroid orbits are right but position is so wrong: check for parameters. Use old version resources to compare procedures
+	- Pluto's orbit is fine too but again position is wrong
+
+# CLEAN UP
+	- Use date converters defined in the beginning for the whole program
+	- cleanup the code
+	- check for python good practices
+
+# EASE OF USE
+	- French version of comments
+
+# IMPROVMENTS
+	- add comets from small body database
+	- list to plot all object from a set of planets
+	- générer des fichiers de données start, stop, step
+	- satellites naturels
+	- sondes
+	- ajouter une fonction pour avoir la liste des objets accessibles 
+
+# PRESENTATION
+	- display features: to show what this thing can do
+	- tutorial (notebook)
+	- documentation
+	- 3D example of Halley
+
+# MISC
+	- animé ou pas
+	- choisir référentiel
