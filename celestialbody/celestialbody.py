@@ -233,37 +233,40 @@ class CelestialBody():
 
     def __init__(self, name, category=None, verbose=False):
         self.verbose = verbose
-
+        if name == "Earth":
+            data_base_name = "EM Bary"
+        else:
+            data_base_name = name
         if category is None:
-            if name in PLANETS:
-                self._params = update_planet_params(name)
-            elif name in ASTEROIDS:
-                self._params = update_asteroid_params(name)
-            elif name in COMETS:
-                self._params = update_comet_params(name)
+            if data_base_name in PLANETS:
+                self._params = update_planet_params(data_base_name)
+            elif data_base_name in ASTEROIDS:
+                self._params = update_asteroid_params(data_base_name)
+            elif data_base_name in COMETS:
+                self._params = update_comet_params(data_base_name)
             else:
-                print("Unknown object:", name)
+                print("Unknown object:", data_base_name)
                 print("To check available bodies, see 'BODIES' list")
                 return
         else:
             if category == "planet":
-                self._params = update_planet_params(name)
+                self._params = update_planet_params(data_base_name)
                 self.fullname = self._params["name"]
             elif category == "asteroid":
-                self._params = update_asteroid_params(name)
+                self._params = update_asteroid_params(data_base_name)
                 self.fullname = "("+str(self._params["number"])+") " + self._params["name"]
             elif category == "comet":
-                self._params = update_comet_params(name)
+                self._params = update_comet_params(data_base_name)
                 self.fullname = self._params["number"] + "/" + self._params["name"]
             else:
-                print("Unknown category:", name)
+                print("Unknown category:", data_base_name)
                 print("Available categories: 'planet', 'asteroid' or 'comet'")
                 return
 
         self.tolerance = 1e-6 # tolerance for Kepler's equation numerical solver
         self.max_iter = 1000
 
-        self.name           = self._params["name"]
+        self.name           = name
         self.category       = self._params["category"]
         self.epoch          = self._params["epoch"]
 
@@ -397,6 +400,28 @@ class CelestialBody():
     def r(self):
         return self.a * (1 - self.e**2) / (1+ self.e * np.cos(deg_to_rad(self.nu)))
 
+    @property
+    def total_energy_per_kilogram(self):
+        """
+        :return: total energy per kilogram of the body
+        """
+        return (- const.G * const.M_sun / 2 / self.a).value
+
+    @property
+    def kinetic_energy_per_kilogram(self):
+        """
+        :return: kinetic energy per kilogram of the body
+        """
+        v = (np.sqrt(const.G * const.M_sun * (2 / self.r - 1 / self.a))).value
+        return v ** 2 / 2
+
+    @property
+    def potential_energy_per_kilogram(self):
+        """
+        :return: total energy per kilogram of the body
+        """
+        return (- const.G * const.M_sun / self.r).value
+
     def orbital_to_ecliptic_coordinates(self, x, y, z):
         omega_rad = deg_to_rad(self.omega)
         Omega_rad = deg_to_rad(self.Omega)
@@ -408,6 +433,7 @@ class CelestialBody():
         Z = (np.sin(omega_rad) * np.sin(i_rad)) * x + (np.cos(omega_rad) * np.sin(i_rad)) * y
         return X, Y, Z
 
+    @property
     def orbital_heliocentric_coordinates(self):
         """
         calculate coordinates in orbital plane at date
@@ -419,20 +445,21 @@ class CelestialBody():
         z = 0
         return x, y, z
 
+    @property
     def ecliptic_heliocentric_coordinates(self):
         """
         calculate ecliptic heliocentric coordinates at date
         :return: ecliptic heliocentric coordinates
         """
-        x, y, z = self.orbital_heliocentric_coordinates()
+        x, y, z = self.orbital_heliocentric_coordinates
         return self.orbital_to_ecliptic_coordinates(x, y, z)
 
     @property
     def position(self):
         """
-        just a simpler call to ecliptic_heliocentric_coordinates()
+        just a simpler call to ecliptic_heliocentric_coordinates
         """
-        return self.ecliptic_heliocentric_coordinates()
+        return self.ecliptic_heliocentric_coordinates
 
     def orbital_heliocentric_orbit(self):
         """
@@ -461,22 +488,85 @@ class CelestialBody():
         """
         return self.ecliptic_heliocentric_orbit()
 
-    def trajectory(self, start, stop, step):
-        """
-        :params:    start: datetime starting date
-                    stop: datetime stop date
-                    step: time in days between two positions
-        :return: x,y,z arrays of ecliptic heliocentric coordinates and n: array of days since start
-        """
+    def data(self, keyword, start=None, stop=None, step=None):
         date = self.date
+        if start is None:
+            start = datetime.datetime.today()
+        if stop is None:
+            stop = start + datetime.timedelta(days=self.period)
+        if step is None:
+            step = int((stop-start).days / 25)
         self.date = start
-        X,Y,Z,n = [], [], [], []
+        tab, n = [], 0
         while self.date <= stop:
-            n.append((self.date-start).days)
-            x,y,z = self.position
-            X.append(x)
-            Y.append(y)
-            Z.append(z)
+            if keyword == "days":
+                val = n
+            else:
+                try:
+                    prop = getattr(CelestialBody, keyword)
+                    val = prop.fget(self)
+                except:
+                    print("Unknown property: "+keyword)
+            tab.append(val)
+            n += step
             self.date += datetime.timedelta(days=step)
         self.date = date
-        return np.array(X), np.array(Y), np.array(Z), np.array(n)
+        return np.array(tab)
+
+    def trajectory(self, start=None, stop=None, step=None):
+        """
+        :params:    start: datetime starting date, default is today
+                    stop: datetime stop date, default is today + orbital period
+                    step: time in days between two positions, default gives 25 points coordinates
+        :return: x,y,z arrays of ecliptic heliocentric coordinates and n: array of days since start
+        """
+        positions = self.data("position", start=start, stop=stop, step=step)
+        days = self.data("days", start=start, stop=stop, step=step)
+        X,Y,Z = positions[:,0], positions[:,1], positions[:,2]
+        return np.array(X), np.array(Y), np.array(Z), np.array(days)
+
+    def data_position_txt(self, start=None, stop=None, step=None, filename=None, header=None, cols="xy", precision=5):
+        """
+        :params:    start: datetime starting date, default is today
+                    stop: datetime stop date, default is today + orbital period
+                    step: time in days between two positions, default gives 25 points coordinates
+                    filename: name of the output file with .txt type, default is based on body name
+                    header: header of the output file
+                    cols: data shown in the output file, string with x, y, z and/or n in any order
+                    precision: number of "significant digits", default is 5
+        :return: filename
+        """
+        if filename is None:
+            filename = self.name.replace(" ", "_").lower() + ".txt"
+        X, Y, Z, n = self.trajectory(start, stop, step)
+        if header is None:
+            header = [u"# fichier " + filename + "\n",
+                      u"####################################\n",
+                      u"# days between two positions: %d \n" % (n[1]-n[0]),
+                      u"####################################\n"
+                     ]
+        col_format = "{:<20}"
+        col_label, col_data = "", []
+        for col in cols:
+            if col == "x":
+                col_label += col_format.format("X (au)")
+                col_data.append(X)
+            elif col == "y":
+                col_label += col_format.format("Y (au)")
+                col_data.append(Y)
+            elif col == "z":
+                col_label += col_format.format("Z (au)")
+                col_data.append(Z)
+            elif col == "n":
+                col_label += col_format.format("n (days)")
+                col_data.append(n)
+
+        with open(filename, "w") as f:
+            f.writelines(header)
+            f.write(col_label+"\n")
+            for i in range(len(X)):
+                line = ""
+                for tab in col_data:
+                    line += col_format.format(round(tab[i], precision-1))
+                f.write(line+"\n")
+        return filename

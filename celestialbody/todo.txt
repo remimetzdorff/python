@@ -10,8 +10,8 @@
 
 # IMPROVMENTS
 	- list to plot all object from a set of planets
-	- file creator with all coordinates for a body from start to stop, with step
-	- natural satellites
+	- natural satellites: https://astronomy.stackexchange.com/questions/27219/computing-orbit-positions-of-jovian-satellites-moons-using-jpl-data
+	- artificial satellites: https://ascelibrary.org/doi/pdf/10.1061/9780784411506.ap03
 	- spacecrafts
 
 # PRESENTATION
@@ -29,3 +29,4 @@
 	- add comets from small body database
 	- add function to access all available bodies: not a function, just a constant
 	- 3D example of Halley or other asteroid with non-zero inclination
+	- file creator with all coordinates for a body from start to stop, with step
