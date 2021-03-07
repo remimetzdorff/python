@@ -18,6 +18,10 @@ def rad_to_deg(angle):
 def deg_to_rad(angle):
     return angle * np.pi / 180
 
+def days_to_centuries(days):
+    return days / 36525.
+
+
 def datetime_to_julian_ephemeris_date(date):
     """
     converts datetime date to julian ephemeris date in days
@@ -209,6 +213,7 @@ def comets_list():
     return names
 
 def enumerate_string(content):
+    # helps to read parameters file
     print(content[0].strip("\n"))
     print(content[1].strip("\n"))
     line1, line2 = "", ""
@@ -264,11 +269,12 @@ class CelestialBody():
                 return
 
         self.tolerance = 1e-6 # tolerance for Kepler's equation numerical solver
+        self.tolerance_rad = deg_to_rad(self.tolerance)
         self.max_iter = 1000
 
-        self.name           = name
-        self.category       = self._params["category"]
-        self.epoch          = self._params["epoch"]
+        self.name     = name
+        self.category = self._params["category"]
+        self.epoch    = self._params["epoch"]
 
         self.a0 = self._params["semimajor_axis"]
         self.e0 = self._params["eccentricity"]
@@ -294,42 +300,38 @@ class CelestialBody():
         self._old_date = self.epoch
         self._old_E = None
 
-        self.date = self.epoch
-        self.a = self.a0
-        self.e = self.e0
-        self.i = self.i0
-        self.L = self.L0
-        self.varpi = self.varpi0
-        self.Omega = self.Omega0
+        self._date = self.epoch
+        self._a = self.a0
+        self._e = self.e0
+        self._i = self.i0
+        self._L = self.L0
+        self._varpi = self.varpi0
+        self._Omega = self.Omega0
 
         self.n_pts_orbit = 1000  # nb of points for orbit list coordinates
         return
 
     @property
     def date(self):
-        return self.__date
+        return self._date
 
     @date.setter
     def date(self, date):
-        self.__date = date
-        if self.category == "planet":
-            self.update_kepler_params()
+        self._date = date
 
-    def days_to_centuries(self, n_days):
-        return n_days / 36525.
+    @property
+    def julian_ephemeris_date(self):
+        return datetime_to_julian_ephemeris_date(self.date)
 
-    def update_kepler_params(self):
-        if self.verbose:
-            print("Updating, Kepler parameters")
-        T_eph = datetime_to_julian_ephemeris_date(self.date)
-        T = self.days_to_centuries(T_eph-j2000_jed)
-        self.a = self.a0 + self.a_dot * T
-        self.e = self.e0 + self.e_dot * T
-        self.i = self.i0 + self.i_dot * T
-        self.L = self.L0 + self.L_dot * T
-        self.varpi = self.varpi0 + self.varpi_dot * T
-        self.Omega = self.Omega0 + self.Omega_dot * T
-        return
+    @property
+    def _days_since_epoch(self):
+        t = self.julian_ephemeris_date
+        t0 = datetime_to_julian_ephemeris_date(self.epoch)
+        return t-t0
+
+    @property
+    def _centuries_since_j2000(self):
+        return days_to_centuries(self.julian_ephemeris_date - j2000_jed)
 
     @property
     def period(self):
@@ -337,8 +339,56 @@ class CelestialBody():
         calulate period
         :return: period in days
         """
-        P = (2 * np.pi * np.sqrt((self.a * const.au) ** 3 / const.G / const.M_sun)).value / 24 / 3600
-        return P
+        return (2 * np.pi * np.sqrt((self.a * const.au) ** 3 / const.G / const.M_sun)).value / 24 / 3600
+
+    @property
+    def mean_motion(self):
+        """
+        mean motion in degree per day
+        """
+        return 360 / self.period
+
+    @property
+    def perihelion_passage_date(self):
+        return self.date - datetime.timedelta(days=self.M / self.mean_motion)
+
+    @property
+    def a(self):
+        if self.category == "planet":
+            self._a = self.a0 + self.a_dot * self._centuries_since_j2000
+        return self._a
+
+    @property
+    def e(self):
+        if self.category == "planet":
+            self._e = self.e0 + self.e_dot * self._centuries_since_j2000
+        return self._e
+
+    @property
+    def i(self):
+        if self.category == "planet":
+            self._i = self.i0 + self.i_dot * self._centuries_since_j2000
+        return self._i
+
+    @property
+    def L(self):
+        if self.category == "planet":
+            self._L = self.L0 + self.L_dot * self._centuries_since_j2000
+        else:
+            self._L = self.L0 + self.mean_motion * self._days_since_epoch
+        return self._L
+
+    @property
+    def varpi(self):
+        if self.category == "planet":
+            self._varpi = self.varpi0 + self.varpi_dot * self._centuries_since_j2000
+        return self._varpi
+
+    @property
+    def Omega(self):
+        if self.category == "planet":
+            self._Omega = self.Omega0 + self.Omega_dot * self._centuries_since_j2000
+        return self._Omega
 
     @property
     def omega(self):
@@ -349,16 +399,11 @@ class CelestialBody():
 
     @property
     def M(self):
+        val = self.L - self.varpi
         if self.category == "planet":
-            T_eph = datetime_to_julian_ephemeris_date(self.date)
-            T = self.days_to_centuries(T_eph)
+            T = self._centuries_since_j2000
             corr = self.b * T**2 + self.c * np.cos(self.f*T) + self.s * np.sin(self.f*T)
-            val = self.L - self.varpi + corr
-        elif (self.category == "asteroid") or (self.category == "comet"):
-            M0 = self.L0 - self.varpi0
-            t = datetime_to_julian_ephemeris_date(self.date)
-            t0 = datetime_to_julian_ephemeris_date(self.epoch)
-            val = M0 + 360/self.period * (t-t0)
+            val += corr
         val += 180
         return val % 360 - 180
 
@@ -378,7 +423,7 @@ class CelestialBody():
                 delta_M_rad = val_M_rad - (val_E_rad - self.e * np.sin(val_E_rad))
                 delta_E_rad = delta_M_rad / (1 - self.e * np.cos(val_E_rad))
                 val_E_rad += delta_E_rad
-                if np.abs(delta_E_rad) < self.tolerance*np.pi/180:
+                if np.abs(delta_E_rad) < self.tolerance_rad:
                     success = True
                     break
             if not success:
@@ -422,6 +467,14 @@ class CelestialBody():
         """
         return (- const.G * const.M_sun / self.r).value
 
+    @property
+    def area_constant(self):
+        date = self.date
+        self.date = self.perihelion_passage_date
+        C = np.sqrt(2 * self.r**2 * self.kinetic_energy_per_kilogram)
+        self.date = date
+        return C
+
     def orbital_to_ecliptic_coordinates(self, x, y, z):
         omega_rad = deg_to_rad(self.omega)
         Omega_rad = deg_to_rad(self.Omega)
@@ -446,6 +499,29 @@ class CelestialBody():
         return x, y, z
 
     @property
+    def x(self):
+        """
+        :return: x coordinate in orbital plane at date
+        """
+        val, _, _ = self.orbital_heliocentric_coordinates
+        return val
+
+    @property
+    def y(self):
+        """
+        :return: y coordinate in orbital plane at date
+        """
+        _, val, _ = self.orbital_heliocentric_coordinates
+        return val
+
+    @property
+    def z(self):
+        """
+        :return: y coordinate in orbital plane at date
+        """
+        return 0
+
+    @property
     def ecliptic_heliocentric_coordinates(self):
         """
         calculate ecliptic heliocentric coordinates at date
@@ -460,6 +536,30 @@ class CelestialBody():
         just a simpler call to ecliptic_heliocentric_coordinates
         """
         return self.ecliptic_heliocentric_coordinates
+
+    @property
+    def X(self):
+        """
+        :return: x coordinate as ecliptic heliocentric coordinate at date
+        """
+        val, _, _ = self.position
+        return val
+
+    @property
+    def Y(self):
+        """
+        :return: y coordinate as ecliptic heliocentric coordinate at date
+        """
+        _, val, _ = self.position
+        return val
+
+    @property
+    def Z(self):
+        """
+        :return: z coordinate as ecliptic heliocentric coordinate at date
+        """
+        _, _, val = self.position
+        return val
 
     def orbital_heliocentric_orbit(self):
         """
@@ -536,13 +636,16 @@ class CelestialBody():
                     precision: number of "significant digits", default is 5
         :return: filename
         """
+        if start is None:
+            start = datetime.datetime.today()
         if filename is None:
             filename = self.name.replace(" ", "_").lower() + ".txt"
-        X, Y, Z, n = self.trajectory(start, stop, step)
+        X, Y, Z, n = self.trajectory(start=start, stop=stop, step=step)
         if header is None:
             header = [u"# fichier " + filename + "\n",
                       u"####################################\n",
                       u"# days between two positions: %d \n" % (n[1]-n[0]),
+                      u"# first line date: %2d/%2d/%4d\n" % (start.day, start.month, start.year),
                       u"####################################\n"
                      ]
         col_format = "{:<20}"
